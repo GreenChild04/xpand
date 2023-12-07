@@ -1,3 +1,4 @@
+use std::{path::Path, fs::File, io::Read};
 use aes_gcm::{Key, Aes256Gcm, aead::{AeadCore, KeyInit, OsRng, Aead, Nonce}};
 use serde::{Serialize, Deserialize};
 use sha2::{Sha256, digest::{Digest, FixedOutput}};
@@ -25,6 +26,22 @@ fn hash(bytes: &[u8]) -> [u8; 64] {
 
     let result = hasher.finalize_fixed();
     result.to_vec().try_into().unwrap()
+}
+
+#[inline]
+pub fn hash_file(path: impl AsRef<Path>) -> Result<[u8; 64], std::io::Error> {
+    let mut hasher: Sha256 = Digest::new();
+    let mut file = File::open(path)?;
+    let mut buffer = [0; 4 * 1024 * 1024];
+    loop {
+        let n = file.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        } hasher.update(&buffer[..n]);
+    }
+    
+    let result = hasher.finalize_fixed();
+    Ok(result.to_vec().try_into().unwrap())
 }
 
 #[derive(Serialize, Deserialize)]

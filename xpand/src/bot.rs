@@ -20,7 +20,7 @@ impl EventHandler for Bot {
 
 impl Bot {
     pub async fn run() {
-        let mut client = Client::builder(secrets::TOKEN.trim(), GatewayIntents::all())
+        let mut client = Client::builder(secrets::TOKEN.trim(), GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT)
             .event_handler(Bot)
             .application_id(secrets::APP_ID)
             .await
