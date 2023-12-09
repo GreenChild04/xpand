@@ -19,7 +19,7 @@ macro_rules! get_aes_key {
 }
 
 #[inline]
-fn hash(bytes: &[u8]) -> [u8; 32] {
+pub fn hash(bytes: &[u8]) -> [u8; 32] {
     let mut hasher: Sha256 = Digest::new();
 
     hasher.update(bytes);

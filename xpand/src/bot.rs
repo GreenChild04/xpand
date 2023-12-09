@@ -15,7 +15,6 @@ impl EventHandler for Bot {
     }
 
     async fn message(&self, ctx: Context, msg: Message) {
-        // msg.channel_id.send_files(&ctx.http, );
         if msg.content == "!ping" {
             let _ = msg.channel_id.say(&ctx.http, "Pong!").await;
         } else if msg.content.starts_with("!echo ") {
@@ -47,5 +46,26 @@ impl Bot {
             .await
             .expect("Error uploading file");
         Ok(message.id.into())
+    }
+
+    /// Downloads a file from the server
+    #[inline]
+    pub async fn download_file(message_id: u64, channel_id: u64, ctx: &Context) -> Result<Box<[u8]>, io::Error> {
+        let channel_id = ChannelId::from(channel_id);
+        let message_id = MessageId::from(message_id);
+        let message = channel_id.message(&ctx.http, message_id)
+            .await
+            .expect("Error getting message");
+
+        let expected_hash = base64::engine::general_purpose::URL_SAFE.decode(message.content.as_bytes()).expect("Error decoding hash");
+        let attachment = message.attachments.first().expect("Error getting attachment");
+        let data = attachment.download().await.expect("Error downloading file").into_boxed_slice();
+        
+        let hash = crypto::hash(&data);
+        if expected_hash != hash {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Hashes do not match"));
+        }
+
+        Ok(data)
     }
 }
