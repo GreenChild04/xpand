@@ -8,5 +8,5 @@ fn segment_file() {
     file.flush().unwrap();
     std::mem::drop(file);
 
-    segment("test_tmp/segment/sourcefile", "test_tmp/segment").unwrap();
+    segment("test_tmp/segment/sourcefile", "test_tmp/segment", |x| x).unwrap();
 }

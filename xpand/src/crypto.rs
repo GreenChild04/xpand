@@ -19,7 +19,7 @@ macro_rules! get_aes_key {
 }
 
 #[inline]
-fn hash(bytes: &[u8]) -> [u8; 64] {
+fn hash(bytes: &[u8]) -> [u8; 32] {
     let mut hasher: Sha256 = Digest::new();
 
     hasher.update(bytes);
@@ -29,10 +29,10 @@ fn hash(bytes: &[u8]) -> [u8; 64] {
 }
 
 #[inline]
-pub fn hash_file(path: impl AsRef<Path>) -> Result<[u8; 64], std::io::Error> {
+pub fn hash_file(path: impl AsRef<Path>) -> Result<[u8; 32], std::io::Error> {
     let mut hasher: Sha256 = Digest::new();
     let mut file = File::open(path)?;
-    let mut buffer = [0; 4 * 1024 * 1024];
+    let mut buffer = vec![0; 4 * 1024 * 1024].into_boxed_slice(); // 4MiB buffer
     loop {
         let n = file.read(&mut buffer)?;
         if n == 0 {
