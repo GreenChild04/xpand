@@ -1,7 +1,6 @@
-use std::{io, path::Path};
-
+use std::io;
 use base64::Engine;
-use serenity::{model::prelude::*, async_trait, client::{Context, EventHandler}, Client, builder::{CreateAttachment, CreateMessage}};
+use serenity::{model::prelude::*, async_trait, client::{Context, EventHandler}, Client};
 use crate::{secrets, crypto};
 
 pub struct Bot;
@@ -10,7 +9,7 @@ pub struct Bot;
 impl EventHandler for Bot {
     async fn ready(&self, ctx: Context, _ready: Ready) {
         println!("Bot is ready");
-        crate::segment::upload_segments(2, 1182850912767713310u64, &ctx, "test_tmp/segment").await.unwrap();
+        crate::segment::segment_upload("test_tmp/segment/sourcefile", 1182850912767713310, &ctx).await.unwrap();
         std::process::exit(0);
     }
 
@@ -31,21 +30,6 @@ impl Bot {
             .await
             .expect("Error creating client");
         client.start().await.unwrap();
-    }
-
-    /// Uploads a file to the server
-    #[inline]
-    pub async fn upload_file(file_path: impl AsRef<Path>, channel_id: u64, ctx: &Context) -> Result<u64, io::Error> {
-        let channel_id = ChannelId::from(channel_id);
-        let hash = crypto::hash_file(&file_path)?;
-        let attachment = CreateAttachment::path(file_path).await.expect("attachment creation failed");
-        let message = CreateMessage::default()
-            .content(base64::engine::general_purpose::URL_SAFE.encode(hash));
-
-        let message = channel_id.send_files(&ctx.http, [attachment], message)
-            .await
-            .expect("Error uploading file");
-        Ok(message.id.into())
     }
 
     /// Downloads a file from the server
