@@ -9,7 +9,9 @@ pub struct Bot;
 impl EventHandler for Bot {
     async fn ready(&self, ctx: Context, _ready: Ready) {
         println!("Bot is ready");
-        crate::segment::segment_upload("test_tmp/segment/sourcefile", 1182850912767713310, &ctx).await.unwrap();
+        let id = crate::segment::segment_upload("test_tmp/segment/sourcefile", 1182850912767713310, &ctx).await.unwrap();
+        crate::segment::segment_download("test_tmp/segment/newfile", 1182850912767713310, id, &ctx).await.unwrap();
+        assert_eq!(crypto::hash_file("test_tmp/segment/sourcefile").unwrap(), crypto::hash_file("test_tmp/segment/newfile").unwrap());
         std::process::exit(0);
     }
 
@@ -47,7 +49,7 @@ impl Bot {
         
         let hash = crypto::hash(&data);
         if expected_hash != hash {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Hashes do not match"));
+            panic!("Hashes do not match");
         }
 
         Ok(data)

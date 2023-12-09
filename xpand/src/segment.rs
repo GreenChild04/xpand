@@ -1,7 +1,7 @@
 use std::{path::Path, io};
 use base64::Engine;
-use serenity::{client::Context, all::ChannelId, builder::{CreateAttachment, CreateMessage}};
-use tokio::{io::AsyncReadExt, fs::File};
+use serenity::{client::Context, all::{ChannelId, MessageId}, builder::{CreateAttachment, CreateMessage}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, fs::File};
 use crate::crypto;
 
 /// Segments the file into 24MiB-25MiB chunks and uploads them to the server
@@ -25,11 +25,33 @@ pub async fn segment_upload(source_file: impl AsRef<Path>, channel_id: u64, ctx:
     }
 
     Ok(upload_bytes(
-        &bincode::serialize(&segment_ids).expect("Error serializing segment ids"),
-        "segment_ids",
+        &bincode::serialize(&segment_ids.into_boxed_slice()).expect("Error serializing segment ids"),
+        "file_map",
         &channel_id,
         ctx
     ).await.expect("Error uploading segment ids"))
+}
+
+/// Downloads the segments from the server and recontructs the original file
+pub async fn segment_download(file_path: impl AsRef<Path>, channel_id: u64, fmap_id: u64, ctx: &Context) -> Result<(), io::Error> {
+    let channel_id = ChannelId::from(channel_id);
+    let file_map = MessageId::from(fmap_id);
+    let mut file = File::create(file_path).await?;
+
+    let segment_ids: Vec<u64> = bincode::deserialize(
+            &download_bytes(&file_map, &channel_id, ctx)
+            .await
+            .expect("Error downloading segment ids"))
+        .expect("Error deserializing segment ids");
+
+    for segment_id in segment_ids {
+        let segment = download_bytes(&MessageId::from(segment_id), &channel_id, ctx)
+            .await
+            .expect("Error downloading segment");
+        file.write_all(&segment).await?;
+    }
+
+    Ok(())
 }
 
 /// Fills the buffer with data from the file
@@ -54,4 +76,22 @@ async fn upload_bytes(bytes: &[u8], file_name: &str, channel_id: &ChannelId, ctx
     let message = channel_id.send_files(&ctx.http, [attachment], message).await?;
 
     Ok(message.id.get())
+}
+
+/// Downloads bytes from the server
+#[inline]
+async fn download_bytes(message_id: &MessageId, channel_id: &ChannelId, ctx: &Context) -> Result<Box<[u8]>, serenity::prelude::SerenityError> {
+    let message = channel_id.message(&ctx.http, message_id).await?;
+    let expected_hash = base64::engine::general_purpose::URL_SAFE
+        .decode(message.content.as_bytes())
+        .expect("Error decoding hash");
+    let attachment = message.attachments.first().expect("Error getting attachment");
+    let data = attachment.download().await?.into_boxed_slice();
+
+    let hash = crypto::hash(&data);
+    if expected_hash != hash {
+        panic!("Hashes do not match");
+    }
+
+    Ok(data)
 }
