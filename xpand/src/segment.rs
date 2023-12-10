@@ -2,7 +2,7 @@ use std::{path::Path, io};
 use base64::Engine;
 use serenity::{client::Context, all::{ChannelId, MessageId}, builder::{CreateAttachment, CreateMessage}};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, fs::File};
-use crate::{crypto, unwrap, log::Log};
+use crate::{crypto, unwrap, log::Log, mapper::{Mapper, MapperType}};
 
 /// Segments the file into 24MiB-25MiB chunks and uploads them to the server
 pub async fn segment_upload(source_file: impl AsRef<Path>, channel_id: u64, ctx: &Context) -> Result<u64, io::Error> {
@@ -23,9 +23,9 @@ pub async fn segment_upload(source_file: impl AsRef<Path>, channel_id: u64, ctx:
         ); i += 1;
     }
 
-    Ok(unwrap!(Res "while uploading file mapper": upload_bytes(
-        &bincode::serialize(&segment_ids.into_boxed_slice()).expect("Error serializing segment ids"),
-        "file_map",
+    Ok(unwrap!(Res "while uploading mapper": upload_bytes(
+        unwrap!(Res "while serializing mapper": &bincode::serialize(&Mapper::new(MapperType::File, segment_ids.into_boxed_slice()))),
+        "mapper",
         &channel_id,
         ctx
     ).await))
@@ -37,12 +37,14 @@ pub async fn segment_download(file_path: impl AsRef<Path>, channel_id: u64, fmap
     let file_map = MessageId::from(fmap_id);
     let mut file = File::create(file_path).await?;
 
-    let segment_ids: Vec<u64> = unwrap!(Res "while loading downloaded file mapper (file mapper is corrupted)": bincode::deserialize(
-        unwrap!(Res "while downloaded file mapper": &download_bytes(&file_map, &channel_id, ctx).await)
+    let mapper: Mapper = unwrap!(Res "while loading downloaded mapper (mapper is corrupted)": bincode::deserialize(
+        unwrap!(Res "while downloaded mapper": &download_bytes(&file_map, &channel_id, ctx).await)
     ));
 
-    for segment_id in segment_ids {
-        let segment = unwrap!(Res "while downloading file segment": download_bytes(&MessageId::from(segment_id), &channel_id, ctx).await);
+    mapper.verify_version(); // version safety check
+
+    for segment_id in mapper.ids.iter() {
+        let segment = unwrap!(Res "while downloading file segment": download_bytes(&MessageId::from(*segment_id), &channel_id, ctx).await);
         file.write_all(&segment).await?;
     }
 
@@ -78,7 +80,7 @@ async fn upload_bytes(bytes: &[u8], file_name: &str, channel_id: &ChannelId, ctx
 async fn download_bytes(message_id: &MessageId, channel_id: &ChannelId, ctx: &Context) -> Result<Box<[u8]>, serenity::prelude::SerenityError> {
     let message = channel_id.message(&ctx.http, message_id).await?;
     let expected_hash = unwrap!(Res "while decoding file hash (file segment or mapper corrupted)": base64::engine::general_purpose::URL_SAFE.decode(message.content.as_bytes()));
-    let attachment = message.attachments.first().expect("Error getting attachment");
+    let attachment = unwrap!(Opt ("invalid file id in mapper") "while pulling file from server": message.attachments.first());
     let data = attachment.download().await?.into_boxed_slice();
 
     let hash = crypto::hash(&data);

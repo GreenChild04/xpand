@@ -67,4 +67,11 @@ macro_rules! unwrap {
             Err(e) => $crate::log::Log::Error(e.to_string(), None).error(),
         }
     };
+
+    (Opt ($error:literal) $details:literal: $expr:expr) => {
+        match $expr {
+            Some(x) => x,
+            None => $crate::log::Log::Error($error.into(), Some($details.to_string())).error(),
+        }
+    };
 }
