@@ -5,26 +5,30 @@ use tokio::{io::{AsyncReadExt, AsyncWriteExt}, fs::File};
 use crate::{crypto, unwrap, log::Log, mapper::{Mapper, MapperType}};
 
 /// Segments the file into 24MiB-25MiB chunks and uploads them to the server
-pub async fn segment_upload(source_file: impl AsRef<Path>, channel_id: u64, ctx: &Context) -> Result<u64, io::Error> {
-    let mut source_file = File::open(source_file).await?;
+pub async fn segment_upload(source_file_path: impl AsRef<Path>, channel_id: u64, ctx: &Context) -> Result<u64, io::Error> {
+    let mut source_file = File::open(&source_file_path).await?;
     let channel_id = ChannelId::from(channel_id);
 
     let mut i = 0u64;
-    let mut buffer = vec![0u8; 24 * 1024 * 1024].into_boxed_slice(); // 24MiB buffer
+    let mut buffer = vec![0u8; 8 * 1024 * 1024].into_boxed_slice(); // 8MiB buffer
     let mut segment_ids = Vec::new();
 
     loop {
         let bytes_read = fill_buffer(&mut buffer, &mut source_file).await?;
         if bytes_read == 0 { break }; // if no bytes read then break
+        Log::Info(format!("read the bytes of segment_{i} from file `{}`", source_file_path.as_ref().to_string_lossy()), None).log();
         
         // hash and upload segment and add it to the list of segment ids
         segment_ids.push(
             unwrap!(Res "while uploading file segment": upload_bytes(&buffer[..bytes_read], &format!("segment_{}", i), &channel_id, ctx).await)
-        ); i += 1;
+        ); Log::Info(format!("successfully uploaded segment_{i} of file `{}", source_file_path.as_ref().to_string_lossy()), None).log();
+        i += 1;
     }
 
     Ok(unwrap!(Res "while uploading mapper": upload_bytes(
-        unwrap!(Res "while serializing mapper": &bincode::serialize(&Mapper::new(MapperType::File, segment_ids.into_boxed_slice()))),
+        unwrap!(Res "while serializing mapper": &bincode::serialize(
+            &Mapper::new(MapperType::File, segment_ids.into_boxed_slice()),
+        )),
         "mapper",
         &channel_id,
         ctx
@@ -35,18 +39,23 @@ pub async fn segment_upload(source_file: impl AsRef<Path>, channel_id: u64, ctx:
 pub async fn segment_download(file_path: impl AsRef<Path>, channel_id: u64, fmap_id: u64, ctx: &Context) -> Result<(), io::Error> {
     let channel_id = ChannelId::from(channel_id);
     let file_map = MessageId::from(fmap_id);
-    let mut file = File::create(file_path).await?;
+    let mut file = File::create(&file_path).await?;
 
+    Log::Info("loading mapper...".into(), None).log();
     let mapper: Mapper = unwrap!(Res "while loading downloaded mapper (mapper is corrupted)": bincode::deserialize(
         unwrap!(Res "while downloaded mapper": &download_bytes(&file_map, &channel_id, ctx).await)
-    ));
+    )); Log::Info("successfully loaded mapper".into(), None).log();
 
     mapper.verify_version(); // version safety check
+    Log::Info("mapper version verified".into(), None).log();
 
-    for segment_id in mapper.ids.iter() {
+    for (i, segment_id) in mapper.ids.iter().enumerate() {
+        Log::Info(format!("downloading segment_{}...", i), None).log();
         let segment = unwrap!(Res "while downloading file segment": download_bytes(&MessageId::from(*segment_id), &channel_id, ctx).await);
+        Log::Info(format!("successfully downloaded segment_{}", i), None).log();
         file.write_all(&segment).await?;
-    }
+        Log::Info(format!("successfully wrote segment_{} to file", i), None).log();
+    } file.flush().await?;
 
     Ok(())
 }
@@ -86,7 +95,5 @@ async fn download_bytes(message_id: &MessageId, channel_id: &ChannelId, ctx: &Co
     let hash = crypto::hash(&data);
     if expected_hash != hash {
         Log::Error("downloaded file is different from the file that was uploaded".into(), Some("file is corrupted".into()));
-    }
-
-    Ok(data)
+    } Ok(data)
 }

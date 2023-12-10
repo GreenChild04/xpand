@@ -7,6 +7,7 @@ pub enum Log {
     Info(String, Option<String>),
     Warning(String, Option<String>),
     Error(String, Option<String>),
+    Success(String, Option<String>),
 }
 
 impl Log {
@@ -17,7 +18,7 @@ impl Log {
         unsafe { ENABLE_LOADING_BAR = false };
         println!("{}", match self {
             L::Info(log, details) => {
-                if unsafe { VERBOSE } { return };
+                if unsafe { !VERBOSE } { return };
                 format!("\x1b[36;1minfo:\x1b[0m {log}{}", Self::details(6, details))
             },
             L::Warning(log, details) => format!("\x1b[33;1mwarning:\x1b[0m {log}{}", Self::details(9, details)),
@@ -25,6 +26,7 @@ impl Log {
                 println!("\x1b[31;1merror:\x1b[0m {log}{}", Self::details(7, details));
                 std::process::exit(1)
             },
+            L::Success(log, details) => format!("\x1b[32msuccess:\x1b[0m {log}{}", Self::details(9, details)),
         });
         unsafe { ENABLE_LOADING_BAR = true };
     }
@@ -38,6 +40,7 @@ impl Log {
             L::Info(log, details) => format!("\x1b[36;1minfo:\x1b[0m {log}{}", Self::details(6, details)),
             L::Warning(log, details) => format!("\x1b[33;1mwarning:\x1b[0m {log}{}", Self::details(9, details)),
             L::Error(log, details) => format!("\x1b[31;1merror:\x1b[0m {log}{}", Self::details(7, details)),
+            L::Success(log, details) => format!("\x1b[32msuccess:\x1b[0m {log}{}", Self::details(9, details)),
         });
 
         std::process::exit(1)

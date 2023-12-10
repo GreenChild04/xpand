@@ -8,7 +8,7 @@ pub struct Mapper {
     pub ids: Box<[u64]>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MapperType {
     File,
 }

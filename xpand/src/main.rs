@@ -1,10 +1,11 @@
 use std::{thread::sleep, time::Duration};
 
-use xpand::bot::Bot;
+use clap::Parser;
+use xpand::cli::Cli;
 
 #[tokio::main]
 async fn main() {
-    Bot::run().await;
+    Cli::parse().execute().await;
 }
 
 // fn main() {
