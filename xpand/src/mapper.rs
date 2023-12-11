@@ -10,7 +10,7 @@ pub struct Mapper {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MapperType {
-    File,
+    File(u64), // size in bytes
 }
 
 impl Mapper {

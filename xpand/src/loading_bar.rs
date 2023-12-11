@@ -1,31 +1,29 @@
-use std::{io::{self, Write}, time::Duration, thread::sleep};
+use std::io::{self, Write};
 use crossterm::{QueueableCommand, cursor, ExecutableCommand};
 
 pub struct LoadingBar {
-    total: u32,
-    current: u32,
+    pub total: f64,
+    current: f64,
     width: u16,
     avg: Option<f32>,
     buffer: String,
-    wiped: bool,
 }
 
 impl LoadingBar {
-    pub fn new(total: u32) -> Self {
+    pub fn new(total: f64) -> Self {
         Self {
             total,
-            current: 0,
+            current: 0.0,
             width: ((crossterm::terminal::size().unwrap_or((2, 0)).0 as f32 - 2.0) * 0.56) as u16, // loading bar is 56% of the terminal width
             avg: None,
             buffer: " ".repeat(crossterm::terminal::size().unwrap_or((2, 0)).0 as usize -2),
-            wiped: false,
         }
     }
 
     #[inline]
-    pub fn update(&mut self, elapsed_s: f32, bytes: usize) -> &mut Self {
-        let mibs = (bytes / 1024 / 1024) as u32;
-        self.current += mibs;
+    pub fn update(&mut self, elapsed_s: f32, bytes: u32) -> &mut Self {
+        let mibs = bytes as f64 / 1024.0 / 1024.0;
+        self.current += mibs.clamp(0.0, self.total - self.current);
         self.avg = match self.avg {
             Some(avg) => Some((avg + (mibs as f32 / elapsed_s) as f32) / 2.0),
             None => Some(mibs as f32),
@@ -36,17 +34,8 @@ impl LoadingBar {
     #[inline]
     pub fn draw(&mut self, description: &str) -> bool {
         let mut stdout = io::stdout();
-        if unsafe { !crate::log::ENABLE_LOADING_BAR } { // don't show loading bar if an error occurred
-            if !self.wiped {
-                // wipe the lines that were previously drawn
-                print!("{}\n{}\n{}\n", self.buffer, self.buffer, self.buffer);
-                stdout
-                    .queue(cursor::Hide).unwrap()
-                    .queue(cursor::MoveUp(3)).unwrap()
-                    .queue(cursor::MoveToColumn(0)).unwrap();
-                self.wiped = true;
-            } sleep(Duration::from_millis(100)); // wait for 100ms
-            return self.draw(description);
+        if unsafe { !crate::log::ENABLE_LOADING_BAR && crate::log::VERBOSE } { // don't show loading bar if an error occurred
+            return false;
         };
 
         let mul = self.current as f32 / self.total as f32; // percentage multiplier
@@ -66,7 +55,7 @@ impl LoadingBar {
         // draw the loading bar & additional info
         let _ = write!(
             io::stdout(),
-            "\x1b[36;1minfo: \x1b[0m{description}...\n\x1b[34m> [\x1b[32m{loaded}{unloaded}\x1b[34m]\n> | \x1b[33m{percent:.2}% \x1b[34m| \x1b[33m{}\x1b[34m/\x1b[33m{} MiB \x1b[34m|\x1b[0m{}\n",
+            "\x1b[36;1minfo: \x1b[0m{description}...\n\x1b[34m> [\x1b[32m{loaded}{unloaded}\x1b[34m]\n> | \x1b[33m{percent:.2}% \x1b[34m| \x1b[33m{:.2}\x1b[34m/\x1b[33m{:.2} MiB \x1b[34m|\x1b[0m{}\n",
             self.current,
             self.total,
             match self.avg {
