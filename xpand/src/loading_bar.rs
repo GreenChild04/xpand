@@ -22,11 +22,11 @@ impl LoadingBar {
 
     #[inline]
     pub fn update(&mut self, elapsed_s: f32, bytes: u32) -> &mut Self {
-        let mibs = bytes as f64 / 1024.0 / 1024.0;
-        self.current += mibs.clamp(0.0, self.total - self.current);
+        let mibs = (bytes as f64 / 1024.0 / 1024.0).clamp(0.0, self.total - self.current);
+        self.current += mibs;
         self.avg = match self.avg {
-            Some(avg) => Some((avg + (mibs as f32 / elapsed_s) as f32) / 2.0),
-            None => Some(mibs as f32),
+            Some(avg) => Some((avg + mibs as f32 / elapsed_s) / 2.0),
+            None => Some(mibs as f32 / elapsed_s),
         }; self
     }
 
