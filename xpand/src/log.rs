@@ -1,3 +1,6 @@
+use std::io::Write;
+use crate::crypto::Password;
+
 pub static mut ENABLE_LOADING_BAR: bool = true;
 pub static mut VERBOSE: bool = false;
 
@@ -18,14 +21,11 @@ impl Log {
         unsafe { ENABLE_LOADING_BAR = false };
         println!("{}", match self {
             L::Info(log, details) => {
-                if unsafe { !VERBOSE } { return };
+                if unsafe { !VERBOSE } { return unsafe { ENABLE_LOADING_BAR = true } };
                 format!("\x1b[36;1minfo:\x1b[0m {log}{}", Self::details(6, details))
             },
             L::Warning(log, details) => format!("\x1b[33;1mwarning:\x1b[0m {log}{}", Self::details(9, details)),
-            L::Error(log, details) => {
-                println!("\x1b[31;1merror:\x1b[0m {log}{}", Self::details(7, details));
-                std::process::exit(1)
-            },
+            L::Error(log, details) => format!("\x1b[31;1merror:\x1b[0m {log}{}", Self::details(7, details)),
             L::Success(log, details) => format!("\x1b[32msuccess:\x1b[0m {log}{}", Self::details(9, details)),
         });
         unsafe { ENABLE_LOADING_BAR = true };
@@ -53,6 +53,20 @@ impl Log {
             None => String::new(),
         }
     }
+}
+
+/// Asks the user for a password
+pub fn ask_password(pass_hash: &Password) -> String {
+    print!("\x1b[35;1mPassword:\x1b[0m ");
+    std::io::stdout().flush().unwrap();
+    
+    let mut password = String::new();
+    std::io::stdin().read_line(&mut password).unwrap();
+    
+    if !pass_hash.verify_password(password.trim()) {
+        Log::Error("incorrect password".into(), Some("while decrypting file(s)".into())).log();
+        ask_password(pass_hash);
+    } password.trim().to_string()
 }
 
 #[macro_export]

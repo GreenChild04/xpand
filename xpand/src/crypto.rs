@@ -1,5 +1,6 @@
 use std::{path::Path, fs::File, io::Read};
 use aes_gcm::{Key, Aes256Gcm, aead::{AeadCore, KeyInit, OsRng, Aead, Nonce}};
+use rand::RngCore;
 use serde::{Serialize, Deserialize};
 use sha2::{Sha256, digest::{Digest, FixedOutput}};
 
@@ -16,6 +17,41 @@ macro_rules! get_aes_key {
     ($password:expr) => {
         &Key::<Aes256Gcm>::from_slice(&hash($password.as_bytes()))
     };
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Password {
+    pub salt: [u8; 32],
+    pub hash: [u8; 32],
+}
+
+impl Password {
+    #[inline]
+    pub fn verify_password(&self, password: &str) -> bool {
+        let mut hasher: Sha256 = Digest::new();
+
+        hasher.update(&self.salt);
+        hasher.update(password.as_bytes());
+
+        let hash = hasher.finalize_fixed();
+        &self.hash[..] == &hash[..]
+    }
+}
+
+#[inline]
+pub fn hash_password(password: &str) -> Password {
+    let mut hasher: Sha256 = Digest::new();
+    let mut salt = [0u8; 32];
+    OsRng.fill_bytes(&mut salt);
+
+    hasher.update(&salt);
+    hasher.update(password.as_bytes());
+
+    let hash = hasher.finalize_fixed();
+    Password {
+        salt,
+        hash: hash.to_vec().try_into().unwrap(),
+    }
 }
 
 #[inline]
@@ -44,23 +80,22 @@ pub fn hash_file(path: impl AsRef<Path>) -> Result<[u8; 32], std::io::Error> {
     Ok(result.to_vec().try_into().unwrap())
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct Encrypted([u8; 12], Box<[u8]>);
 #[inline]
-pub fn encrypt(password: &str, bytes: &[u8]) -> Option<Encrypted> {
+pub fn encrypt(password: &str, bytes: &[u8]) -> Option<Box<[u8]>> {
     let cipher = Aes256Gcm::new(get_aes_key!(password));
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     cipher.encrypt(
         &nonce,
         bytes
-    ).map(|x|
-        Some(Encrypted(nonce.to_vec().try_into().unwrap(), x.into_boxed_slice()))
-    ).unwrap_or(None)
+    ).map(|mut x| {
+        x.append(&mut nonce.to_vec());
+        Some(x.into_boxed_slice())
+}).unwrap_or(None)
 }
 
 #[inline]
-pub fn decrypt(password: &str, encrypted: &Encrypted) -> Option<Box<[u8]>> {
+pub fn decrypt(password: &str, encrypted: &[u8]) -> Option<Box<[u8]>> {
     let cipher = Aes256Gcm::new(get_aes_key!(password));
-    let this = unwrap!(Err cipher.decrypt(Nonce::<Aes256Gcm>::from_slice(&encrypted.0), encrypted.1.as_ref()));
+    let this = unwrap!(Err cipher.decrypt(Nonce::<Aes256Gcm>::from_slice(&encrypted[encrypted.len()-12..]), &encrypted[..encrypted.len()-12]));
     Some(this.into_boxed_slice())
 }

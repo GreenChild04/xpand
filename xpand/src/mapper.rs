@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use crate::{version::Version, log::Log};
+use crate::{version::Version, log::Log, crypto::Password};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mapper {
@@ -11,6 +11,7 @@ pub struct Mapper {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MapperType {
     File(u64), // size in bytes
+    EncryptedFile(u64, Box<Password>), // size in bytes, password
 }
 
 impl Mapper {

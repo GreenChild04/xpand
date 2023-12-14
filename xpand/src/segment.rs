@@ -2,10 +2,10 @@ use std::{path::Path, io, time::Instant};
 use base64::Engine;
 use serenity::{client::Context, all::{ChannelId, MessageId}, builder::{CreateAttachment, CreateMessage}};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, fs::File};
-use crate::{crypto, unwrap, log::Log, mapper::{Mapper, MapperType}, loading_bar::LoadingBar};
+use crate::{crypto, unwrap, log::{Log, self}, mapper::{Mapper, MapperType}, loading_bar::LoadingBar};
 
 /// Segments the file into 24MiB-25MiB chunks and uploads them to the server
-pub async fn segment_upload(source_file_path: impl AsRef<Path>, channel_id: u64, ctx: &Context) -> Result<u64, io::Error> {
+pub async fn segment_upload(source_file_path: impl AsRef<Path>, password: Option<String>, channel_id: u64, ctx: &Context) -> Result<u64, io::Error> {
     let mut source_file = File::open(&source_file_path).await?;
     let channel_id = ChannelId::from(channel_id);
 
@@ -21,12 +21,26 @@ pub async fn segment_upload(source_file_path: impl AsRef<Path>, channel_id: u64,
         let bytes_read = fill_buffer(&mut buffer, &mut source_file).await?;
         if bytes_read == 0 { break }; // if no bytes read then break
         Log::Info(format!("read the bytes of segment_{i} from file `{}`", source_file_path.as_ref().to_string_lossy()), None).log();
-        
+
         // hash and upload segment and add it to the list of segment ids
-        segment_ids.push(
-            unwrap!(Res "while uploading file segment": upload_bytes(&buffer[..bytes_read], &format!("segment_{}", i), &channel_id, ctx).await)
-        ); Log::Info(format!("successfully uploaded segment_{i} of file `{}", source_file_path.as_ref().to_string_lossy()), None).log();
-        i += 1;
+        segment_ids.push(match &password {
+            Some(passwd) => {
+                unwrap!(Res "while uploading file segment": upload_bytes(
+                    unwrap!(Opt ("program was unable to encrypt file segment") "while encrypting file segment": &crypto::encrypt(passwd.trim(), &buffer[..bytes_read])),
+                    &format!("segment_{}", i),
+                    &channel_id,
+                    ctx,
+                ).await)
+            },
+            None => {
+                unwrap!(Res "while uploading file segment": upload_bytes(
+                    &buffer[..bytes_read],
+                    &format!("segment_{}", i),
+                    &channel_id,
+                    ctx,
+                ).await)
+            },
+        }); i += 1;
 
         // update loading bar
         loading_bar
@@ -36,7 +50,16 @@ pub async fn segment_upload(source_file_path: impl AsRef<Path>, channel_id: u64,
 
     Ok(unwrap!(Res "while uploading mapper": upload_bytes(
         unwrap!(Res "while serializing mapper": &bincode::serialize(
-            &Mapper::new(MapperType::File(source_file.metadata().await?.len()), segment_ids.into_boxed_slice()),
+            &Mapper::new(
+                match &password {
+                    Some(passwd) => MapperType::EncryptedFile(
+                        source_file.metadata().await?.len(),
+                        Box::new(crypto::hash_password(passwd.trim()))
+                    ),
+                    None => MapperType::File(source_file.metadata().await?.len()),
+                },
+                segment_ids.into_boxed_slice()
+            ),
         )),
         "mapper",
         &channel_id,
@@ -55,8 +78,18 @@ pub async fn segment_download(file_path: impl AsRef<Path>, channel_id: u64, fmap
         unwrap!(Res "while downloaded mapper": &download_bytes(&file_map, &channel_id, ctx).await)
     )); Log::Info("successfully loaded mapper".into(), None).log();
 
-    let file_size = match mapper.mtype {
-        MapperType::File(x) => x,
+    let file_size = match &mapper.mtype {
+        MapperType::File(x) => *x,
+        MapperType::EncryptedFile(x, _) => *x,
+    };
+
+    let password = match &mapper.mtype {
+        MapperType::File(_) => None,
+        MapperType::EncryptedFile(_, passwd) => {
+            // ask for the password
+            Log::Warning("file is encrypted".into(), Some("enter the password below to decrypt the file".into())).log();
+            Some(log::ask_password(&passwd))
+        },
     };
 
     let mut loading_bar = LoadingBar::new(file_size as f64 / 1024.0 / 1024.0);
@@ -70,12 +103,16 @@ pub async fn segment_download(file_path: impl AsRef<Path>, channel_id: u64, fmap
 
         Log::Info(format!("downloading segment_{}...", i), None).log();
         let segment = unwrap!(Res "while downloading file segment": download_bytes(&MessageId::from(*segment_id), &channel_id, ctx).await);
+        let segment_len = segment.len();
         Log::Info(format!("successfully downloaded segment_{}", i), None).log();
-        file.write_all(&segment).await?;
+        file.write_all(&match &mapper.mtype {
+            MapperType::File(_) => segment,
+            MapperType::EncryptedFile(..) => unwrap!(Opt ("program was unable to decrypt file segment") "downloaded file segment is likely to be corrupted": crypto::decrypt(password.as_ref().unwrap(), &segment)),
+        }).await?;
         Log::Info(format!("successfully wrote segment_{} to file", i), None).log();
 
         loading_bar
-            .update(time.elapsed().as_secs_f32(), segment.len() as u32)
+            .update(time.elapsed().as_secs_f32(), segment_len as u32)
             .draw("downloading file segments");
     } file.flush().await?;
 

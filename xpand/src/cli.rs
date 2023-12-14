@@ -19,6 +19,8 @@ pub enum Command {
     Test,
     #[command(about="Uploads a file to the server")]
     Upload {
+        #[arg(short='e', long, help="The password that you want to encrypt the file with (optional)")]
+        password: Option<String>,
         #[arg(index=1, help="The path of the file you want to upload")]
         file: String,
     },
@@ -43,9 +45,10 @@ impl EventHandler for Cli {
         use Command as C;
         match &self.command {
             C::Test => println!("Hello, World!"),
-            C::Upload { file } => {
+            C::Upload { password, file } => {
                 let id = unwrap!(Res "while uploading file": crate::segment::segment_upload(
-                    file, 
+                    file,
+                    password.clone(),
                     secrets::CHANNEL_ID,
                     &ctx
                 ).await);

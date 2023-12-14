@@ -1,12 +1,12 @@
 [package]
 name = "xpand"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.32.0", features = ["full"] }
+tokio = { version = "1.35.0", features = ["full"] }
 # git2 = "0.18.1"
 crypto = "0.5.1"
 rand = "0.8.5"

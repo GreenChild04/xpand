@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::{io::{self, Write}, thread::sleep, time::Duration};
 use crossterm::{QueueableCommand, cursor, ExecutableCommand};
 
 pub struct LoadingBar {
@@ -34,8 +34,9 @@ impl LoadingBar {
     #[inline]
     pub fn draw(&mut self, description: &str) -> bool {
         let mut stdout = io::stdout();
-        if unsafe { !crate::log::ENABLE_LOADING_BAR && crate::log::VERBOSE } { // don't show loading bar if an error occurred
-            return false;
+        if unsafe { !crate::log::ENABLE_LOADING_BAR } { // don't show loading bar if an error occurred
+            sleep(Duration::from_millis(50));
+            return self.draw(description);
         };
 
         let mul = self.current as f32 / self.total as f32; // percentage multiplier
